@@ -1,4 +1,57 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Environment variables
 .env
-.vscode
-backend\app\__pycache__
-backend\venv
+.env.*
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build / distribution
+build/
+dist/
+*.egg-info/
+
+# Python testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# SQLite DB
+*.sqlite3
+*.db
+
+# FastAPI / uvicorn
+*.pid
+
+# Node modules (if frontend later in same repo)
+node_modules/
+
+# React build
+frontend/build/
+frontend/.env
+
+# IDE
+.idea/
+
+# Misc
+*.swp
+*.swo
