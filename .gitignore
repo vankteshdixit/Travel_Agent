@@ -1,0 +1,4 @@
+.env
+.vscode
+backend\app\__pycache__
+backend\venv
