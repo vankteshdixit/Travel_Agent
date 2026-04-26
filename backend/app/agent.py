@@ -23,6 +23,9 @@ llm = ChatOpenAI(
 
 
 class State(TypedDict, total=False):
+    user_id: str
+    email: str
+
     origin: str
     destination: str
     travel_date: date
@@ -99,9 +102,10 @@ def fetch_all_data(state: State):
 # Node 3 -> Generate itinerary
 def generate_itinerary(state: State):
 
-    # FINAL TRIP CACHE
+    # USER SPECIFIC TRIP CACHE
     trip_cache_key = (
         f"trip:"
+        f"{state['user_id']}:"
         f"{state['origin']}:"
         f"{state['destination']}:"
         f"{state['travel_date']}:"
@@ -202,8 +206,10 @@ At end give:
 
     state["itinerary"] = itinerary
 
-    # SAVE TO MONGODB
+    # SAVE TO MONGODB (USER SPECIFIC)
     save_trip({
+        "user_id": state["user_id"],
+        "email": state["email"],
         "origin": state["origin"],
         "destination": state["destination"],
         "travel_date": str(state["travel_date"]),
@@ -216,7 +222,7 @@ At end give:
         "itinerary": itinerary
     })
 
-    # SAVE FINAL TRIP CACHE
+    # SAVE FINAL CACHE
     set_cache(
         trip_cache_key,
         itinerary,
