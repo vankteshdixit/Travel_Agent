@@ -3,7 +3,10 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph
 from datetime import date, timedelta
+import asyncio
 
+from app.cache import get_cache, set_cache
+from app.db import save_trip
 from app.tools.flight_tool import search_flights
 from app.tools.hotel_tool import search_hotels
 from app.tools.weather_tool import get_weather
@@ -34,7 +37,7 @@ class State(TypedDict, total=False):
     itinerary: str
 
 
-# Node 1 -> basic trip plan
+# Node 1
 def plan_trip(state: State):
     state["plan"] = (
         f"{state['days']}-day trip "
@@ -44,90 +47,115 @@ def plan_trip(state: State):
     return state
 
 
-# Node 2 -> real flights
-def search_flights_node(state: State):
-    state["flights"] = search_flights(
-        state["origin"],
-        state["destination"],
-        state["travel_date"],
-        state["days"],
-        state["budget"]
-    )
-    return state
-
-
-# Node 3 -> real hotels
-def search_hotels_node(state: State):
-    checkout_date = state["travel_date"] + timedelta(days=state["days"])
-
-    state["hotels"] = search_hotels(
-        state["destination"],
-        state["travel_date"],
-        checkout_date
+# Node 2 -> Parallel execution
+def fetch_all_data(state: State):
+    checkout_date = (
+        state["travel_date"] +
+        timedelta(days=state["days"])
     )
 
+    async def run_parallel():
+        flights_task = search_flights(
+            state["origin"],
+            state["destination"],
+            state["travel_date"],
+            state["days"],
+            state["budget"]
+        )
+
+        hotels_task = search_hotels(
+            state["destination"],
+            state["travel_date"],
+            checkout_date
+        )
+
+        weather_task = get_weather(
+            state["destination"]
+        )
+
+        activities_task = get_activities(
+            state["destination"]
+        )
+
+        return await asyncio.gather(
+            flights_task,
+            hotels_task,
+            weather_task,
+            activities_task
+        )
+
+    flights, hotels, weather, activities = asyncio.run(
+        run_parallel()
+    )
+
+    state["flights"] = flights
+    state["hotels"] = hotels
+    state["weather"] = weather
+    state["activities"] = activities
+
     return state
 
 
-# Node 4 -> weather
-def weather_node(state: State):
-    state["weather"] = get_weather(state["destination"])
-    return state
-
-
-# Node 5 -> activities
-def activity_node(state: State):
-    state["activities"] = get_activities(state["destination"])
-    return state
-
-
-# Node 6 -> final itinerary generation
+# Node 3 -> Generate itinerary
 def generate_itinerary(state: State):
 
-    # format flights nicely
+    # FINAL TRIP CACHE
+    trip_cache_key = (
+        f"trip:"
+        f"{state['origin']}:"
+        f"{state['destination']}:"
+        f"{state['travel_date']}:"
+        f"{state['days']}:"
+        f"{state['budget']}"
+    )
+
+    cached_trip = get_cache(trip_cache_key)
+
+    if cached_trip:
+        state["itinerary"] = cached_trip
+        return state
+
+    # Flights formatting
     if state.get("flights"):
-        flight_text = "\n".join(
-            [
-                (
-                    f"{f['airline']} | "
-                    f"{f['origin']} → {f['destination']} | "
-                    f"₹{f['price']} {f['currency']} | "
-                    f"Stops: {f['stops']} | "
-                    f"Departure: {f['departure']}"
-                )
-                for f in state["flights"]
-            ]
-        )
+        flight_text = "\n".join([
+            (
+                f"{f.get('airline')} | "
+                f"{f.get('origin')} → {f.get('destination')} | "
+                f"₹{f.get('price')} {f.get('currency')} | "
+                f"Stops: {f.get('stops')} | "
+                f"Departure: {f.get('departure')}"
+            )
+            for f in state["flights"]
+        ])
     else:
         flight_text = "No flights available"
 
-    # format hotels nicely
+    # Hotels formatting
     if state.get("hotels"):
-        hotel_text = "\n".join(
-            [
-                (
-                    f"{h['name']} | "
-                    f"⭐ {h['rating']} | "
-                    f"Reviews: {h['reviews']} | "
-                    f"Stars: {h['stars']} | "
-                    f"₹{h['price']} {h['currency']}"
-                )
-                for h in state["hotels"]
-            ]
-        )
+        hotel_text = "\n".join([
+            (
+                f"{h.get('name')} | "
+                f"⭐ {h.get('rating')} | "
+                f"Reviews: {h.get('reviews')} | "
+                f"Stars: {h.get('stars') or 'N/A'} | "
+                f"₹{h.get('price')} {h.get('currency')}"
+            )
+            for h in state["hotels"]
+        ])
     else:
         hotel_text = "No hotels available"
 
-    # format activities nicely
+    # Activities formatting
     if state.get("activities"):
-        activity_text = "\n".join(
-            [f"- {activity}" for activity in state["activities"]]
-        )
+        activity_text = "\n".join([
+            f"- {activity}"
+            for activity in state["activities"]
+        ])
     else:
         activity_text = "No activities available"
 
     prompt = f"""
-You are an expert travel planner.
+You are an expert AI travel planner.
 
 Create a detailed itinerary.
 
@@ -162,14 +190,38 @@ Day 2:
 Continue for all days.
 
 At end give:
-Budget summary
-Best hotel recommendation
-Best flight recommendation
+1. Budget summary
+2. Best hotel recommendation
+3. Best flight recommendation
+4. Important travel notes
 """
 
     response = llm.invoke(prompt)
 
-    state["itinerary"] = response.content
+    itinerary = response.content
+
+    state["itinerary"] = itinerary
+
+    # SAVE TO MONGODB
+    save_trip({
+        "origin": state["origin"],
+        "destination": state["destination"],
+        "travel_date": str(state["travel_date"]),
+        "days": state["days"],
+        "budget": state["budget"],
+        "flights": state["flights"],
+        "hotels": state["hotels"],
+        "weather": state["weather"],
+        "activities": state["activities"],
+        "itinerary": itinerary
+    })
+
+    # SAVE FINAL TRIP CACHE
+    set_cache(
+        trip_cache_key,
+        itinerary,
+        ttl=3600
+    )
 
     return state
 
@@ -178,18 +230,12 @@ Best flight recommendation
 builder = StateGraph(State)
 
 builder.add_node("plan", plan_trip)
-builder.add_node("flights", search_flights_node)
-builder.add_node("hotels", search_hotels_node)
-builder.add_node("weather", weather_node)
-builder.add_node("activities", activity_node)
+builder.add_node("fetch_all", fetch_all_data)
 builder.add_node("itinerary", generate_itinerary)
 
 builder.set_entry_point("plan")
 
-builder.add_edge("plan", "flights")
-builder.add_edge("flights", "hotels")
-builder.add_edge("hotels", "weather")
-builder.add_edge("weather", "activities")
-builder.add_edge("activities", "itinerary")
+builder.add_edge("plan", "fetch_all")
+builder.add_edge("fetch_all", "itinerary")
 
 graph = builder.compile()

@@ -1,5 +1,9 @@
+import asyncio
 from app.services.weather_service import fetch_weather
 
 
-def get_weather(destination: str) -> str:
-    return fetch_weather(destination)
+async def get_weather(destination: str) -> str:
+    return await asyncio.to_thread(
+        fetch_weather,
+        destination
+    )

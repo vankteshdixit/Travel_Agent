@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from dotenv import load_dotenv
+from app.cache import get_cache, set_cache
 
 load_dotenv()
 
@@ -55,11 +56,26 @@ def search_airport(query: str):
 
 def fetch_flights(origin: str, destination: str, travel_date):
     try:
+        travel_date_str = travel_date.isoformat()
+
+        # Redis cache key
+        cache_key = (
+            f"flight:"
+            f"{origin}:"
+            f"{destination}:"
+            f"{travel_date_str}"
+        )
+
+        # Try cache first
+        cached = get_cache(cache_key)
+        if cached:
+            return cached
+
         origin_data = search_airport(origin)
         destination_data = search_airport(destination)
 
         if not origin_data or not destination_data:
-            return [
+            flights = [
                 {
                     "airline": "No flights available",
                     "origin": origin,
@@ -73,6 +89,9 @@ def fetch_flights(origin: str, destination: str, travel_date):
                 }
             ]
 
+            set_cache(cache_key, flights)
+            return flights
+
         url = f"{BASE_URL}/flights/searchFlights"
 
         params = {
@@ -80,7 +99,7 @@ def fetch_flights(origin: str, destination: str, travel_date):
             "originEntityId": origin_data["entityId"],
             "destinationSkyId": destination_data["skyId"],
             "destinationEntityId": destination_data["entityId"],
-            "date": travel_date.isoformat(),
+            "date": travel_date_str,
             "adults": 1,
             "children": 0,
             "infants": 0,
@@ -116,40 +135,46 @@ def fetch_flights(origin: str, destination: str, travel_date):
                 flights = []
 
                 for itinerary in itineraries[:5]:
-                    price = itinerary.get("price", {})
-                    legs = itinerary.get("legs", [])
+                    try:
+                        price = itinerary.get("price", {})
+                        legs = itinerary.get("legs", [])
 
-                    if not legs:
+                        if not legs:
+                            continue
+
+                        leg = legs[0]
+
+                        carrier = "Unknown"
+                        carriers = leg.get("carriers", [])
+
+                        if carriers:
+                            carrier = carriers[0].get("name", "Unknown")
+
+                        flights.append({
+                            "airline": carrier,
+                            "origin": leg.get("origin"),
+                            "destination": leg.get("destination"),
+                            "departure": leg.get("departure"),
+                            "arrival": leg.get("arrival"),
+                            "duration_minutes": leg.get("durationMinutes"),
+                            "stops": leg.get("stopCount"),
+                            "price": price.get("amount"),
+                            "currency": price.get("currency")
+                        })
+
+                    except Exception as parse_error:
+                        print("[Flight Parse Error]", parse_error)
                         continue
 
-                    leg = legs[0]
-
-                    carrier = "Unknown"
-                    carriers = leg.get("carriers", [])
-
-                    if carriers:
-                        carrier = carriers[0].get("name", "Unknown")
-
-                    flights.append({
-                        "airline": carrier,
-                        "origin": leg.get("origin"),
-                        "destination": leg.get("destination"),
-                        "departure": leg.get("departure"),
-                        "arrival": leg.get("arrival"),
-                        "duration_minutes": leg.get("durationMinutes"),
-                        "stops": leg.get("stopCount"),
-                        "price": price.get("amount"),
-                        "currency": price.get("currency")
-                    })
-
                 if flights:
+                    set_cache(cache_key, flights)
                     return flights
 
             except Exception as e:
                 print(f"[Retry {attempt + 1} Failed]", e)
                 time.sleep(1)
 
-        return [
+        flights = [
             {
                 "airline": "No flights available",
                 "origin": origin,
@@ -163,10 +188,13 @@ def fetch_flights(origin: str, destination: str, travel_date):
             }
         ]
 
+        set_cache(cache_key, flights)
+        return flights
+
     except Exception as e:
         print("[Flight Search Error]", e)
 
-        return [
+        flights = [
             {
                 "airline": "Flight service unavailable",
                 "origin": origin,
@@ -179,3 +207,5 @@ def fetch_flights(origin: str, destination: str, travel_date):
                 "currency": None
             }
         ]
+
+        return flights

@@ -1,19 +1,11 @@
+import asyncio
 from typing import List
+from app.services.places_service import fetch_places
 
-def get_activities(destination: str) -> List[str]:
-    data = {
-        "Goa": [
-            "Beach hopping",
-            "Water sports",
-            "Night market",
-            "Seafood dining",
-        ],
-        "Tokyo": [
-            "Shibuya Crossing",
-            "Temple visit",
-            "Anime district",
-            "Sushi experience",
-        ],
-    }
 
-    return data.get(destination, ["City exploration"])
+async def get_activities(destination: str) -> List[str]:
+    return await asyncio.to_thread(
+        fetch_places,
+        destination
+    )
+
