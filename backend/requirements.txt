@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+langchain-openai
+langgraph
+pymongo
+redis
+httpx
+requests
+python-jose
+passlib[bcrypt]
+bcrypt
+email-validator
