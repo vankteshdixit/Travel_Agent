@@ -4,6 +4,7 @@ from fastapi import (
     Header,
     Depends
 )
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent import graph
 from app.schema import TripRequest, TripResponse
@@ -14,6 +15,20 @@ from app.db import get_user_trips
 
 app = FastAPI(
     title="AI Travel Planner API"
+)
+
+# CORS
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Register auth routes
@@ -29,9 +44,7 @@ def get_current_user(
             detail="Authorization header missing"
         )
 
-    if not authorization.startswith(
-        "Bearer "
-    ):
+    if not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=401,
             detail="Invalid token format"
@@ -64,9 +77,7 @@ def trip_request(
         request_data["user_id"] = user["sub"]
         request_data["email"] = user["email"]
 
-        result = graph.invoke(
-            request_data
-        )
+        result = graph.invoke(request_data)
 
         return result
 
@@ -83,9 +94,7 @@ def trip_request(
 def my_trips(
     user=Depends(get_current_user)
 ):
-    trips = get_user_trips(
-        user["sub"]
-    )
+    trips = get_user_trips(user["sub"])
 
     return {
         "count": len(trips),

@@ -179,25 +179,41 @@ Hotels:
 Activities:
 {activity_text}
 
-Return format:
+Return itinerary in clean markdown format:
 
-Day 1:
-- activities
-- food suggestions
-- travel tips
+# Trip Overview
 
-Day 2:
-- activities
-- food suggestions
-- travel tips
+## Day 1
+### Flight
+- airline
+- time
+- price
 
-Continue for all days.
+### Hotel
+- name
+- price
 
-At end give:
-1. Budget summary
-2. Best hotel recommendation
-3. Best flight recommendation
-4. Important travel notes
+### Activities
+- place 1
+- place 2
+
+### Food
+- breakfast
+- lunch
+- dinner
+
+### Tips
+- tip 1
+- tip 2
+
+## Day 2
+... continue for all days ...
+
+## Budget Summary
+
+## Best Recommendations
+
+## Important Notes
 """
 
     response = llm.invoke(prompt)
